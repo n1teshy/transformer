@@ -35,6 +35,7 @@ class Dataset(_Dataset):
         self.target_tokens = []
         self.src_pad = config.source_pad_id
         self.tgt_pad = config.target_pad_id
+        self.device = config.device
         self._prepare_tokens(config)
 
     def __len__(self) -> int:
@@ -48,7 +49,7 @@ class Dataset(_Dataset):
         Xs, Ys = [torch.tensor(x) for x in Xs], [torch.tensor(y) for y in Ys]
         Xs = pad_sequence(Xs, batch_first=True, padding_value=self.src_pad)
         Ys = pad_sequence(Ys, batch_first=True, padding_value=self.tgt_pad)
-        return Xs, Ys
+        return Xs.to(self.device), Ys.to(self.device)
 
     def encode_sample(self, src: str, tgt: str, config: Config) -> tuple[list[list[int]]]:
         src = src.replace(config.pseudo_newline, "\n") if config.pseudo_newline else src
