@@ -1,4 +1,5 @@
 import torch
+import pickle
 from torch.utils.data import Dataset as _Dataset
 from torch.nn.utils.rnn import pad_sequence
 from os import PathLike
@@ -29,21 +30,36 @@ class Config:
     
 
 class Dataset(_Dataset):
-    def __init__(self, config: Config):
+    def __init__(self):
         super().__init__()
         self.source_tokens = []
         self.target_tokens = []
-        self.src_pad = config.source_pad_id
-        self.tgt_pad = config.target_pad_id
-        self.device = config.device
-        self._prepare_tokens(config)
+        self.src_pad = None
+        self.tgt_pad = None
+        self.device = None
 
     def __len__(self) -> int:
         return len(self.source_tokens)
     
     def __getitem__(self, idx: int) -> tuple[list[int], list[int]]:
         return self.source_tokens[idx], self.target_tokens[idx]
+    
+    def save(self, file: PathLike):
+        pickle.dump({
+            "src_tokens": self.source_tokens,
+            "tgt_tokens": self.target_tokens,
+            "src_pad": self.src_pad,
+            "tgt_pad": self.tgt_pad
+        }, open(file, "wb"))
 
+    def load(self, file: PathLike, device: torch.device = DEVICE):
+        data = pickle.load(open(file, "rb"))
+        self.source_tokens = data["src_tokens"]
+        self.target_tokens = data["tgt_tokens"]
+        self.src_pad = data["src_pad"]
+        self.tgt_pad = data["tgt_pad"]
+        self.device = device
+    
     def collate(self, batch: list[tuple[list[int]]]) -> tuple[list[list[int]]]:
         Xs, Ys = zip(*batch)
         Xs, Ys = [torch.tensor(x) for x in Xs], [torch.tensor(y) for y in Ys]
@@ -64,7 +80,10 @@ class Dataset(_Dataset):
             tgt_tokens = [tgt_tokens]
         return [src_tokens] * len(tgt_tokens), tgt_tokens
 
-    def _prepare_tokens(self, config: Config):
+    def prepare(self, config: Config):
+        self.src_pad = config.source_pad_id
+        self.tgt_pad = config.target_pad_id
+        self.device = config.device
         source = open(config.source, encoding="utf-8")
         target = open(config.target, encoding="utf-8")
         line_count = sum(1 for _ in source)
