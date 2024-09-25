@@ -51,11 +51,10 @@ class Transformer(nn.Module):
         # mask shape: (B, 1, Td, Td)
         B, T = y.shape
         pad_mask = (y != self.dec_pad_id).unsqueeze(1).unsqueeze(3)
-        causal_mask = torch.tril(torch.ones(T, T)).type(torch.ByteTensor)
+        causal_mask = torch.tril(torch.ones(T, T)).type(torch.ByteTensor).to(y.device)
         causal_pad_mask = (pad_mask & causal_mask)
         mask = torch.zeros_like(causal_pad_mask, dtype=torch.float)
-        mask.masked_fill_(causal_pad_mask.logical_not(), -10000)
-        return mask.to(self.device)
+        return mask.masked_fill_(causal_pad_mask.logical_not(), -10000)
     
     @torch.no_grad()
     def generate(self, x: Tensor, *, context: OptionalTensor = None, max_tokens: Optional[int] = None):
@@ -115,4 +114,4 @@ class Generator:
         B, T = x.shape
         mask = torch.tril(torch.ones(T, T))
         mask = torch.zeros_like(mask).masked_fill_(mask.logical_not(), -10000)
-        return mask.to(dtype=self.device)
+        return mask.to(self.device)
