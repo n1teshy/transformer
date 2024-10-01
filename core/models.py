@@ -5,14 +5,13 @@ from torch import Tensor
 from typing import Optional
 from core.utils.types import OptionalTensor
 from core.components import (
-    MultiheadSelfAttention,
     Config,
     EncoderConfig,
     Encoder,
     DecoderConfig,
     Decoder,
-    MLP,
-    Embedding
+    Embedding,
+    GeneratorBlock,
 )
 
 
@@ -81,18 +80,6 @@ class Transformer(nn.Module):
                 if max_tokens == 0:
                     return
             context = torch.cat((context, next_idx), dim=1)
-        
-
-class GeneratorBlock:
-    def __init__(self, config: Config):
-        self.attn = MultiheadSelfAttention(config)
-        self.ln1 = nn.LayerNorm(config.model_dim)
-        self.mlp = MLP(config)
-        self.ln2 = nn.LayerNorm(config.model_dim)
-
-    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
-        x = self.ln1(self.attn(x, mask) + x)
-        return self.ln2(self.mlp(x) + x)
 
 
 class Generator:

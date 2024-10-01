@@ -3,31 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch import Tensor
-from dataclasses import dataclass
-from core.globals import DEVICE
-from core.utils.types import OptionalTensor, OptionalDevice
-
-
-@dataclass
-class Config:
-    no_blocks: int
-    no_heads: int
-    model_dim: int
-    vocab_size: int
-    pad_id: int
-    context: int
-
-
-@dataclass
-class EncoderConfig(Config):
-    device: OptionalDevice = DEVICE
-
-
-@dataclass
-class DecoderConfig(Config):
-    sos_id: int
-    eos_id: int
-    device: OptionalDevice = DEVICE
+from core.utils.types import OptionalTensor
+from core.utils.configs import Config, EncoderConfig, DecoderConfig
 
 
 class Embedding(nn.Module):
@@ -164,4 +141,16 @@ class Decoder(nn.Module):
         for block in self.blocks:
             decoded = block(encoded=encoded, decoded=decoded, enc_mask=enc_mask, dec_mask=dec_mask)
         return self.lm_head(decoded)
+
+
+class GeneratorBlock:
+    def __init__(self, config: Config):
+        self.attn = MultiheadSelfAttention(config)
+        self.ln1 = nn.LayerNorm(config.model_dim)
+        self.mlp = MLP(config)
+        self.ln2 = nn.LayerNorm(config.model_dim)
+
+    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
+        x = self.ln1(self.attn(x, mask) + x)
+        return self.ln2(self.mlp(x) + x)
     
