@@ -57,7 +57,7 @@ class Transformer(nn.Module):
         return mask.masked_fill_(causal_pad_mask.logical_not(), -10000)
     
     @torch.no_grad()
-    def generate(self, x: Tensor, *, context: OptionalTensor = None, max_tokens: Optional[int] = None):
+    def generate(self, x: Tensor, *, context: OptionalTensor = None, max_tokens: Optional[int] = None, topk: int | None = None):
         assert x.shape[0] == 1
         x = self.encoder(x)
         context = context or torch.full((x.shape[0], 1), self.sos_id)
@@ -66,16 +66,21 @@ class Transformer(nn.Module):
             context = context[:, -self.decoder_context:]
             logits = self.decoder(x, context)
             probs = F.softmax(logits, dim=2)[:, -1, :]
-            next_token = torch.multinomial(probs, num_samples=1)
-            scalar_token_id = next_token.item()
-            yield scalar_token_id
-            if scalar_token_id == self.eos_id:
+            if topk is None:
+                next_idx = torch.multinomial(probs, 1)
+            else:
+                k_probs, k_indices = torch.topk(probs, k=topk)
+                next_idx = torch.multinomial(k_probs, 1)
+                next_idx = torch.gather(k_indices, -1, next_idx)
+            token_id = next_idx.item()
+            yield token_id
+            if token_id == self.eos_id:
                 return
             elif max_tokens is not None:
                 max_tokens -= 1
                 if max_tokens == 0:
                     return
-            context = torch.cat((context, next_token), dim=1)
+            context = torch.cat((context, next_idx), dim=1)
         
 
 class GeneratorBlock:
