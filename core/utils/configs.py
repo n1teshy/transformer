@@ -1,6 +1,31 @@
+import torch
+from pathlib import Path
 from dataclasses import dataclass
+from typing import Callable
 from core.globals import DEVICE
 from core.utils.types import OptionalDevice
+
+
+@dataclass
+class SeqToSeqDataConfig:
+    source: Path
+    target: Path
+    encoder_context: int
+    decoder_context: int
+    encode_source: Callable
+    encode_target: Callable
+    source_pad_id: int
+    target_pad_id: int
+    sos_id: int
+    eos_id: int
+    batch_size: int
+    pseudo_newline: str | None = None
+    stride: int | None = None
+    device: torch.device = DEVICE
+
+    def __post_init__(self):
+        if self.stride is None:
+            self.stride = self.decoder_context // 2
 
 
 @dataclass
