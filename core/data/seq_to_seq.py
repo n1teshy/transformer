@@ -16,6 +16,7 @@ class SeqToSeqDataset():
         else:
             self.source_shards = [f for f in config.source.iterdir() if f.is_file()]
             self.target_shards = [f for f in config.target.iterdir() if f.is_file()]
+        assert set([f.name for f in self.source_shards]) == set([f.name for f in self.target_shards])
         self.source_shards.sort(key=lambda addr: addr.stem)
         self.target_shards.sort(key=lambda addr: addr.stem)
         for idx in range(len(self.source_shards)):
@@ -33,7 +34,7 @@ class SeqToSeqDataset():
         self.current_shard_idx = 0
         self.sequences_processed = 0
         self._prepare_current_shard()
-        
+
     def _encode_sample(self, src: str, tgt: str) -> tuple[list[list[int]]]:
         if self.config.pseudo_newline is not None:
             src = src.replace(self.config.pseudo_newline, "\n")
