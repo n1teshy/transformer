@@ -1,4 +1,7 @@
+import os
 import torch
+import pickle
+from pathlib import Path
 from typing import Generator
 from torch import Tensor
 from torch.nn.utils.rnn import pad_sequence
@@ -7,6 +10,21 @@ from core.utils.configs import SeqToSeqDataConfig
 
 class SeqToSeqDataset():
     def __init__(self, config: SeqToSeqDataConfig):
+        self.config = config
+        self._prepare_shards()
+        self.source_sequences = []
+        self.target_sequences = []
+        self.current_shard_idx = 0
+        self.sequences_processed = 0
+
+    def _prepare_shards(self):
+        config = self.config
+        if config.cache_dir is not None:
+            assert (config.cache_dir / "source").exists()
+            assert (config.cache_dir / "target").exists()
+            self.source_shards = [f for f in (config.cache_dir / "source").iterdir()]
+            self.target_shards = [f for f in (config.cache_dir / "target").iterdir()]
+            return
         assert config.source.is_file() == config.target.is_file()
         if config.source.is_file():
             self.source_shards = [config.source]
@@ -15,6 +33,8 @@ class SeqToSeqDataset():
             self.source_shards = [f for f in config.source.iterdir() if f.is_file()]
             self.target_shards = [f for f in config.target.iterdir() if f.is_file()]
         assert set([f.name for f in self.source_shards]) == set([f.name for f in self.target_shards])
+        # TODO: sorting may not be necessary since if the names are all the same,
+        # the reading order of iterdir() must also be the same
         self.source_shards.sort(key=lambda addr: addr.stem)
         self.target_shards.sort(key=lambda addr: addr.stem)
         for idx in range(len(self.source_shards)):
@@ -23,15 +43,11 @@ class SeqToSeqDataset():
             with open(self.target_shards[idx], encoding="utf-8") as f:
                 target_line_count = sum(1 for _ in f)
             assert source_line_count == target_line_count != 0
-        self.source_sequences = []
-        self.target_sequences = []
-        self.config = config
-        self._reset()
 
     def _reset(self):
         self.current_shard_idx = 0
         self.sequences_processed = 0
-        self._prepare_current_shard()
+        self._load_current_shard()
 
     def _encode_sample(self, src: str, tgt: str) -> tuple[list[list[int]]]:
         if self.config.pseudo_newline is not None:
@@ -47,7 +63,11 @@ class SeqToSeqDataset():
             tgt_tokens = [tgt_tokens]
         return [src_tokens] * len(tgt_tokens), tgt_tokens
 
-    def _prepare_current_shard(self):
+    def _load_current_shard(self):
+        if self.source_shards[self.current_shard_idx].suffix == ".pkl":
+            self.source_sequences = pickle.load(open(self.source_shards[self.current_shard_idx], "rb"))
+            self.target_sequences = pickle.load(open(self.target_shards[self.current_shard_idx], "rb"))
+            return
         self.source_sequences, self.target_sequences = [], []
         source = self.source_shards[self.current_shard_idx]
         target = self.target_shards[self.current_shard_idx]
@@ -60,6 +80,20 @@ class SeqToSeqDataset():
                     self.source_sequences.extend(src)
                     self.target_sequences.extend(tgt)
 
+    def save(self, path: os.PathLike, verbose: bool=False):
+        path = Path(path)
+        source_dir, target_dir = path / "source", path / "target"
+        source_dir.mkdir(exist_ok=True), target_dir.mkdir(exist_ok=True)
+        for shard_idx in range(len(self.source_shards)):
+            self.current_shard_idx = shard_idx
+            self._load_current_shard()
+            source_file = source_dir / f"{self.source_shards[shard_idx].name}.pkl"
+            target_file = target_dir / f"{self.target_shards[shard_idx].name}.pkl"
+            pickle.dump(self.source_sequences, open(source_file, "wb"))
+            pickle.dump(self.target_sequences, open(target_file, "wb"))
+            if verbose:
+                print(f"saved {shard_idx + 1}/{len(self.source_shards)} shards")
+
     def batch_generator(self) -> Generator[tuple[Tensor], None, None]:
         self._reset()
         while True:
@@ -70,7 +104,7 @@ class SeqToSeqDataset():
                 self.current_shard_idx += 1
                 if self.current_shard_idx == len(self.source_shards):
                     return
-                self._prepare_current_shard()
+                self._load_current_shard()
                 batch_till = self.config.batch_size - len(Xs)
                 Xs += self.source_sequences[:batch_till]
                 Ys += self.target_sequences[:batch_till]

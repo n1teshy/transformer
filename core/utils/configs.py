@@ -22,6 +22,7 @@ class SeqToSeqDataConfig:
     pseudo_newline: str | None = None
     stride: int | None = None
     device: torch.device = DEVICE
+    cache_dir: Path | None = None
 
     def __post_init__(self):
         if self.stride is None:
