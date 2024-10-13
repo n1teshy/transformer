@@ -19,6 +19,8 @@ class SeqToSeqDataConfig:
     sos_id: int
     eos_id: int
     batch_size: int
+    shuffle_shards: bool = False
+    shuffle_samples: bool = False
     pseudo_newline: str | None = None
     stride: int | None = None
     device: torch.device = DEVICE

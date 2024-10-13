@@ -1,6 +1,7 @@
 import os
 import torch
 import pickle
+import random
 from pathlib import Path
 from typing import Generator
 from torch import Tensor
@@ -24,25 +25,27 @@ class SeqToSeqDataset():
             assert (config.cache_dir / "target").exists()
             self.source_shards = [f for f in (config.cache_dir / "source").iterdir()]
             self.target_shards = [f for f in (config.cache_dir / "target").iterdir()]
-            return
-        assert config.source.is_file() == config.target.is_file()
-        if config.source.is_file():
-            self.source_shards = [config.source]
-            self.target_shards = [config.target]
         else:
-            self.source_shards = [f for f in config.source.iterdir() if f.is_file()]
-            self.target_shards = [f for f in config.target.iterdir() if f.is_file()]
-        assert set([f.name for f in self.source_shards]) == set([f.name for f in self.target_shards])
-        # TODO: sorting may not be necessary since if the names are all the same,
-        # the reading order of iterdir() must also be the same
-        self.source_shards.sort(key=lambda addr: addr.stem)
-        self.target_shards.sort(key=lambda addr: addr.stem)
-        for idx in range(len(self.source_shards)):
-            with open(self.source_shards[idx], encoding="utf-8") as f:
-                source_line_count = sum(1 for _ in f)
-            with open(self.target_shards[idx], encoding="utf-8") as f:
-                target_line_count = sum(1 for _ in f)
-            assert source_line_count == target_line_count != 0
+            assert config.source.is_file() == config.target.is_file()
+            if config.source.is_file():
+                self.source_shards = [config.source]
+                self.target_shards = [config.target]
+            else:
+                self.source_shards = [f for f in config.source.iterdir() if f.is_file()]
+                self.target_shards = [f for f in config.target.iterdir() if f.is_file()]
+            assert set([f.name for f in self.source_shards]) == set([f.name for f in self.target_shards])
+            # TODO: sorting may not be necessary since if the names are all the same,
+            # the reading order of iterdir() must also be the same
+            for idx in range(len(self.source_shards)):
+                with open(self.source_shards[idx], encoding="utf-8") as f:
+                    source_line_count = sum(1 for _ in f)
+                with open(self.target_shards[idx], encoding="utf-8") as f:
+                    target_line_count = sum(1 for _ in f)
+                assert source_line_count == target_line_count != 0
+        if self.config.shuffle_shards:
+            pairs = list(zip(self.source_shards, self.target_shards))
+            random.shuffle(pairs)
+            self.source_shards, self.target_shards = zip(*pairs)
 
     def _reset(self):
         self.current_shard_idx = 0
@@ -67,18 +70,22 @@ class SeqToSeqDataset():
         if self.source_shards[self.current_shard_idx].suffix == ".pkl":
             self.source_sequences = pickle.load(open(self.source_shards[self.current_shard_idx], "rb"))
             self.target_sequences = pickle.load(open(self.target_shards[self.current_shard_idx], "rb"))
-            return
-        self.source_sequences, self.target_sequences = [], []
-        source = self.source_shards[self.current_shard_idx]
-        target = self.target_shards[self.current_shard_idx]
-        with open(source, encoding="utf-8") as source_f:
-            with open(target, encoding="utf-8") as target_f:
-                while source_line := source_f.readline():
-                    source_line = source_line.rstrip("\n")
-                    target_line = target_f.readline().rstrip("\n")
-                    src, tgt = self._encode_sample(source_line, target_line)
-                    self.source_sequences.extend(src)
-                    self.target_sequences.extend(tgt)
+        else:
+            self.source_sequences, self.target_sequences = [], []
+            source = self.source_shards[self.current_shard_idx]
+            target = self.target_shards[self.current_shard_idx]
+            with open(source, encoding="utf-8") as source_f:
+                with open(target, encoding="utf-8") as target_f:
+                    while source_line := source_f.readline():
+                        source_line = source_line.rstrip("\n")
+                        target_line = target_f.readline().rstrip("\n")
+                        src, tgt = self._encode_sample(source_line, target_line)
+                        self.source_sequences.extend(src)
+                        self.target_sequences.extend(tgt)
+        if self.config.shuffle_samples:
+            pairs = list(zip(self.source_sequences, self.target_sequences))
+            random.shuffle(pairs)
+            self.source_sequences, self.target_sequences = zip(*pairs)
 
     def save(self, path: os.PathLike, verbose: bool=False):
         path = Path(path)
