@@ -47,7 +47,7 @@ class SeqToSeqDataset():
             random.shuffle(pairs)
             self.source_shards, self.target_shards = zip(*pairs)
 
-    def _reset(self):
+    def reset(self):
         self.current_shard_idx = 0
         self.sequences_processed = 0
         self._load_current_shard()
@@ -101,22 +101,24 @@ class SeqToSeqDataset():
             if verbose:
                 print(f"saved {shard_idx + 1}/{len(self.source_shards)} shards")
 
-    def batch_generator(self) -> Generator[tuple[Tensor], None, None]:
-        self._reset()
-        while True:
-            batch_till = self.sequences_processed + self.config.batch_size
-            Xs = self.source_sequences[self.sequences_processed: batch_till]
-            Ys = self.target_sequences[self.sequences_processed: batch_till]
-            if batch_till > len(self.source_sequences):
-                self.current_shard_idx += 1
-                if self.current_shard_idx == len(self.source_shards):
-                    return
-                self._load_current_shard()
-                batch_till = self.config.batch_size - len(Xs)
-                Xs += self.source_sequences[:batch_till]
-                Ys += self.target_sequences[:batch_till]
-            Xs, Ys = [torch.tensor(x) for x in Xs], [torch.tensor(y) for y in Ys]
-            Xs = pad_sequence(Xs, batch_first=True, padding_value=self.config.source_pad_id)
-            Ys = pad_sequence(Ys, batch_first=True, padding_value=self.config.target_pad_id)
-            self.sequences_processed = batch_till
-            yield Xs.to(device=self.config.device), Ys.to(device=self.config.device)
+    def next_batch(self) -> tuple[Tensor] | None:
+        batch_till = self.sequences_processed + self.config.batch_size
+        Xs = self.source_sequences[self.sequences_processed: batch_till]
+        Ys = self.target_sequences[self.sequences_processed: batch_till]
+        if batch_till > len(self.source_sequences):
+            # print("current shard is exhausted")
+            self.current_shard_idx += 1
+            if self.current_shard_idx == len(self.source_shards):
+                # print("it was the last shard")
+                return
+            # print("loading another shard")
+            self._load_current_shard()
+            batch_till = self.config.batch_size - len(Xs)
+            Xs += self.source_sequences[:batch_till]
+            Ys += self.target_sequences[:batch_till]
+        Xs, Ys = [torch.tensor(x) for x in Xs], [torch.tensor(y) for y in Ys]
+        Xs = pad_sequence(Xs, batch_first=True, padding_value=self.config.source_pad_id)
+        Ys = pad_sequence(Ys, batch_first=True, padding_value=self.config.target_pad_id)
+        self.sequences_processed = batch_till
+        # print("yielding another batch")
+        return Xs.to(device=self.config.device), Ys.to(device=self.config.device)
