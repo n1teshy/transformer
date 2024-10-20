@@ -106,12 +106,9 @@ class SeqToSeqDataset():
         Xs = self.source_sequences[self.sequences_processed: batch_till]
         Ys = self.target_sequences[self.sequences_processed: batch_till]
         if batch_till > len(self.source_sequences):
-            # print("current shard is exhausted")
             self.current_shard_idx += 1
             if self.current_shard_idx == len(self.source_shards):
-                # print("it was the last shard")
                 return
-            # print("loading another shard")
             self._load_current_shard()
             batch_till = self.config.batch_size - len(Xs)
             Xs += self.source_sequences[:batch_till]
@@ -120,5 +117,4 @@ class SeqToSeqDataset():
         Xs = pad_sequence(Xs, batch_first=True, padding_value=self.config.source_pad_id)
         Ys = pad_sequence(Ys, batch_first=True, padding_value=self.config.target_pad_id)
         self.sequences_processed = batch_till
-        # print("yielding another batch")
         return Xs.to(device=self.config.device), Ys.to(device=self.config.device)
