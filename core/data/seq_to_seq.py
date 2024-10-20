@@ -33,9 +33,8 @@ class SeqToSeqDataset():
             else:
                 self.source_shards = [f for f in config.source.iterdir() if f.is_file()]
                 self.target_shards = [f for f in config.target.iterdir() if f.is_file()]
-            assert set([f.name for f in self.source_shards]) == set([f.name for f in self.target_shards])
-            # TODO: sorting may not be necessary since if the names are all the same,
-            # the reading order of iterdir() must also be the same
+            # make sure there is a 1:1 mapping between source and target files
+            assert set(f.name for f in self.source_shards) == set(f.name for f in self.target_shards)
             for idx in range(len(self.source_shards)):
                 with open(self.source_shards[idx], encoding="utf-8") as f:
                     source_line_count = sum(1 for _ in f)
@@ -59,6 +58,8 @@ class SeqToSeqDataset():
         src_tokens = self.config.encode_source(src)
         assert len(src_tokens) <= self.config.encoder_context, f"\"{src}\" exceeds encoder context"
         tgt_tokens = [self.config.sos_id] + self.config.encode_target(tgt) + [self.config.eos_id]
+        # the target sequences are stored as "<sos> + xxxx + <eos>", only "<sos> + xxxx" is fed to
+        # the decoder i.e "full_target_sequence - <eos_token>"
         if len(tgt_tokens) - 1 > self.config.decoder_context:
             it = range(self.config.decoder_context + 1, len(tgt_tokens) + self.config.stride, self.config.stride)
             tgt_tokens = [tgt_tokens[i - (self.config.decoder_context + 1): i] for i in it]
@@ -67,7 +68,7 @@ class SeqToSeqDataset():
         return [src_tokens] * len(tgt_tokens), tgt_tokens
 
     def _load_current_shard(self):
-        if self.source_shards[self.current_shard_idx].suffix == ".pkl":
+        if self.config.cache_dir is not None:
             self.source_sequences = pickle.load(open(self.source_shards[self.current_shard_idx], "rb"))
             self.target_sequences = pickle.load(open(self.target_shards[self.current_shard_idx], "rb"))
         else:

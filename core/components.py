@@ -1,3 +1,7 @@
+# TODO: look into flash attention
+# TODO: use model compilation?
+# TODO: use TF16?
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
