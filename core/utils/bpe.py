@@ -65,9 +65,10 @@ class Tokenizer:
             if verbose:
                 print(f"token {256 + round}: {self.vocab[pair[0]]} + {self.vocab[pair[1]] } -> {self.vocab[256 + round]}")
 
-    def add_special_tokens(self, specials: dict[str, int]) -> None:
-        self.specials = specials
-        self.inverse_specials = {v: k for k, v in specials.items()}
+    def add_special_tokens(self, *specials) -> None:
+        assert all([isinstance(token, str) for token in specials])
+        self.specials = {token: self.size + i for i, token in enumerate(specials)}
+        self.inverse_specials = {v: k for k, v in self.specials.items()}
 
     def _encode_chunk(self, text_bytes: bytes) -> list[int]:
         ids = list(text_bytes)

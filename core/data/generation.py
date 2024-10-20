@@ -1,50 +1,38 @@
 import torch
-from torch.utils.data import Dataset as _Dataset
+from pathlib import Path
 from torch.nn.utils.rnn import pad_sequence
-from os import PathLike
 from dataclasses import dataclass
 from typing import Callable
 from core.globals import DEVICE
 
 
 @dataclass
-class Config:
-    source: PathLike
+class GeneratorDataConfig:
+    source: Path
     context: int
     encode: Callable
     sos_id: int
+    eos_id: int
     pseudo_newline: str | None = None
     stride: int | None = None
     device: torch.device = DEVICE
+    cache_dir: Path | None = None
 
     def __post_init__(self):
         if self.stride is None:
             self.stride = self.target_context // 2
     
 
-class Seq2SeqDataset(_Dataset):
-    def __init__(self, config: Config):
-        super().__init__()
+class GeneratorDataset():
+    def __init__(self, config: GeneratorDataConfig):
+        self.config = config
         self.source_tokens = []
         self.target_tokens = []
         self.src_pad = config.source_pad_id
         self.tgt_pad = config.target_pad_id
         self._prepare_tokens(config)
 
-    def __len__(self) -> int:
-        return len(self.source_tokens)
-    
-    def __getitem__(self, idx: int) -> tuple[list[int], list[int]]:
-        return self.source_tokens[idx], self.target_tokens[idx]
-
-    def collate(self, batch: list[tuple[list[int]]]) -> tuple[list[list[int]]]:
-        Xs, Ys = zip(*batch)
-        Xs, Ys = [torch.tensor(x) for x in Xs], [torch.tensor(y) for y in Ys]
-        Xs = pad_sequence(Xs, batch_first=True, padding_value=self.src_pad)
-        Ys = pad_sequence(Ys, batch_first=True, padding_value=self.tgt_pad)
-        return Xs, Ys
-
-    def encode_sample(self, src: str, tgt: str, config: Config) -> tuple[list[list[int]]]:
+    def encode_sample(self, src: str, tgt: str, config: GeneratorDataConfig) -> tuple[list[list[int]]]:
         src = src.replace(config.pseudo_newline, "\n") if config.pseudo_newline else src
         tgt = tgt.replace(config.pseudo_newline, "\n") if config.pseudo_newline else tgt
         src_tokens = config.encode_source(src)
@@ -57,7 +45,7 @@ class Seq2SeqDataset(_Dataset):
             tgt_tokens = [tgt_tokens]
         return [src_tokens] * len(tgt_tokens), tgt_tokens
 
-    def _prepare_tokens(self, config: Config):
+    def _prepare_tokens(self, config: GeneratorDataConfig):
         source = open(config.source, encoding="utf-8")
         target = open(config.target, encoding="utf-8")
         line_count = sum(1 for _ in source)
