@@ -8,11 +8,11 @@ import torch.nn.functional as F
 
 from torch import Tensor
 from core.utils.types import OptionalTensor
-from core.utils.configs import Config, EncoderConfig, DecoderConfig
+from core.utils.configs import ModelConfig, EncoderConfig, DecoderConfig
 
 
 class Embedding(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.tkn_embedding = nn.Embedding(config.vocab_size, config.model_dim)
         self.pos_encoding = torch.randn((config.context, config.model_dim))
@@ -33,7 +33,7 @@ class Embedding(nn.Module):
 
 
 class MultiheadSelfAttention(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.w_attn = nn.Linear(config.model_dim, 3 * config.model_dim)
         self.proj = nn.Linear(config.model_dim, config.model_dim)
@@ -57,7 +57,7 @@ class MultiheadSelfAttention(nn.Module):
 
 
 class MultiheadCrossAttention(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.w_kv = nn.Linear(config.model_dim, 2 * config.model_dim)
         self.w_q = nn.Linear(config.model_dim, config.model_dim)
@@ -83,7 +83,7 @@ class MultiheadCrossAttention(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.layers = nn.Sequential(
             nn.Linear(config.model_dim, config.model_dim * 4),
@@ -178,7 +178,7 @@ class Decoder(nn.Module):
 
 
 class GeneratorBlock:
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         self.attn = MultiheadSelfAttention(config)
         self.ln1 = nn.LayerNorm(config.model_dim)
         self.mlp = MLP(config)

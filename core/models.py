@@ -5,7 +5,7 @@ from torch import Tensor
 from typing import Optional
 from core.utils.types import OptionalTensor
 from core.components import (
-    Config,
+    ModelConfig,
     EncoderConfig,
     Encoder,
     DecoderConfig,
@@ -96,7 +96,7 @@ class Transformer(nn.Module):
 
 
 class Generator:
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         self.embeddings = Embedding(config)
         self.blocks = nn.Sequential(
             *[GeneratorBlock(config) for _ in range(config.no_blocks)]

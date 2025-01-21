@@ -4,3 +4,8 @@
 
 ** generator **
 1. read code and find shit
+
+
+** data **
+1. add common DataConfig class
+2. create GeneratorDataConfig and TransformerDataConfig

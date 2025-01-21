@@ -31,8 +31,11 @@ class SeqToSeqDataConfig:
             self.stride = self.decoder_context // 2
 
 
+
+
+
 @dataclass
-class Config:
+class ModelConfig:
     no_blocks: int
     no_heads: int
     model_dim: int
@@ -42,12 +45,12 @@ class Config:
 
 
 @dataclass
-class EncoderConfig(Config):
+class EncoderConfig(ModelConfig):
     device: OptionalDevice = DEVICE
 
 
 @dataclass
-class DecoderConfig(Config):
+class DecoderConfig(ModelConfig):
     sos_id: int
     eos_id: int
     device: OptionalDevice = DEVICE
