@@ -41,7 +41,7 @@ class Tokenizer:
         self.pattern = re.compile(GPT4_SPLIT_PATTERN)
         self.vocab = {}
         self.merges = {}
-        self.specials = {} # str: int
+        self.specials = {}  # str: int
         self.inverse_specials = {}
 
     @property
@@ -61,9 +61,11 @@ class Tokenizer:
             pair = max(frequencies, key=frequencies.get)
             splits = [merge_tokens(split, pair, 256 + round) for split in splits]
             self.merges[pair] = 256 + round
-            self.vocab[256 + round] = self.vocab[pair[0]] + self.vocab[pair[1]]     
+            self.vocab[256 + round] = self.vocab[pair[0]] + self.vocab[pair[1]]
             if verbose:
-                print(f"token {256 + round}: {self.vocab[pair[0]]} + {self.vocab[pair[1]] } -> {self.vocab[256 + round]}")
+                print(
+                    f"token {256 + round}: {self.vocab[pair[0]]} + {self.vocab[pair[1]] } -> {self.vocab[256 + round]}"
+                )
 
     def add_special_tokens(self, *specials) -> None:
         assert all([isinstance(token, str) for token in specials])
@@ -79,14 +81,14 @@ class Tokenizer:
                 break
             ids = merge_tokens(ids, pair, self.merges[pair])
         return ids
-    
+
     def encode_ordinary(self, text: str) -> list[int]:
         splits = re.findall(self.pattern, text)
         ids = []
         for split in splits:
             ids.extend(self._encode_chunk(split.encode("utf-8")))
         return ids
-    
+
     def encode(self, text: str, allowed_specials="none_raise") -> list[int]:
         specials = None
         if allowed_specials == "all":
@@ -120,7 +122,7 @@ class Tokenizer:
             else:
                 raise ValueError(f"{id} is not a valid token id")
         return b"".join(byte_parts).decode("utf-8", errors="replace")
-    
+
     def save(self, addr: str) -> None:
         with open(addr + ".model", "w") as f:
             f.write(f"{len(self.specials)}\n")

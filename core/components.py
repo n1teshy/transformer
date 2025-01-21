@@ -18,8 +18,12 @@ class Embedding(nn.Module):
         self.pos_encoding = torch.randn((config.context, config.model_dim))
         positions = torch.arange(0, config.context).unsqueeze(1)
         _2i = torch.arange(0, config.model_dim, 2)
-        self.pos_encoding[:, 0::2] = torch.sin(positions / 10000 ** (_2i / config.model_dim))
-        self.pos_encoding[:, 1::2] = torch.cos(positions / 10000 ** (_2i / config.model_dim))
+        self.pos_encoding[:, 0::2] = torch.sin(
+            positions / 10000 ** (_2i / config.model_dim)
+        )
+        self.pos_encoding[:, 1::2] = torch.cos(
+            positions / 10000 ** (_2i / config.model_dim)
+        )
         self.pos_encoding = self.pos_encoding.to(config.device)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -50,7 +54,7 @@ class MultiheadSelfAttention(nn.Module):
         # (B, nh, T, hs) -> (B, T, nh, hs) -> (B, T, C)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         return self.proj(y)
-    
+
 
 class MultiheadCrossAttention(nn.Module):
     def __init__(self, config: Config):
@@ -59,7 +63,7 @@ class MultiheadCrossAttention(nn.Module):
         self.w_q = nn.Linear(config.model_dim, config.model_dim)
         self.proj = nn.Linear(config.model_dim, config.model_dim)
         self.no_heads = config.no_heads
-        
+
     def forward(self, encoded: Tensor, decoded: Tensor, mask: OptionalTensor) -> Tensor:
         B, T, C = encoded.shape
         kv = self.w_kv(encoded)
@@ -80,12 +84,12 @@ class MLP(nn.Module):
         self.layers = nn.Sequential(
             nn.Linear(config.model_dim, config.model_dim * 4),
             nn.GELU("tanh"),
-            nn.Linear(config.model_dim * 4, config.model_dim)
+            nn.Linear(config.model_dim * 4, config.model_dim),
         )
-    
+
     def forward(self, x: Tensor) -> Tensor:
         return self.layers(x)
-    
+
 
 class EncoderBlock(nn.Module):
     def __init__(self, config: EncoderConfig):
@@ -98,7 +102,7 @@ class EncoderBlock(nn.Module):
     def forward(self, x: Tensor, mask: OptionalTensor) -> Tensor:
         x = x + self.attn(self.ln1(x), mask)
         return x + self.mlp(self.ln2(x))
-    
+
 
 class Encoder(nn.Module):
     def __init__(self, config: EncoderConfig):
@@ -107,13 +111,13 @@ class Encoder(nn.Module):
         self.blocks = nn.ModuleList(
             [EncoderBlock(config) for _ in range(config.no_blocks)]
         )
-    
+
     def forward(self, x: Tensor, mask: OptionalTensor = None) -> Tensor:
         x = self.embedding(x)
         for block in self.blocks:
             x = block(x, mask)
         return x
-    
+
 
 class DecoderBlock(nn.Module):
     def __init__(self, config: DecoderConfig):
@@ -125,9 +129,18 @@ class DecoderBlock(nn.Module):
         self.mlp = MLP(config)
         self.ln3 = nn.LayerNorm(config.model_dim)
 
-    def forward(self, encoded: Tensor, decoded: Tensor, *, enc_mask: OptionalTensor, dec_mask: OptionalTensor) -> Tensor:
+    def forward(
+        self,
+        encoded: Tensor,
+        decoded: Tensor,
+        *,
+        enc_mask: OptionalTensor,
+        dec_mask: OptionalTensor,
+    ) -> Tensor:
         decoded = self.ln1(self.self_attn(decoded, dec_mask) + decoded)
-        decoded = self.ln2(self.cross_attn(encoded=encoded, decoded=decoded, mask=enc_mask) + decoded)
+        decoded = self.ln2(
+            self.cross_attn(encoded=encoded, decoded=decoded, mask=enc_mask) + decoded
+        )
         return self.ln3(self.mlp(decoded) + decoded)
 
 
@@ -135,15 +148,24 @@ class Decoder(nn.Module):
     def __init__(self, config: DecoderConfig):
         super().__init__()
         self.embedding = Embedding(config)
-        self.blocks = nn.ModuleList([
-            DecoderBlock(config) for _ in range(config.no_blocks)
-        ])
+        self.blocks = nn.ModuleList(
+            [DecoderBlock(config) for _ in range(config.no_blocks)]
+        )
         self.lm_head = nn.Linear(config.model_dim, config.vocab_size)
 
-    def forward(self, encoded: Tensor, decoded: Tensor, *, enc_mask: OptionalTensor = None, dec_mask: OptionalTensor = None) -> Tensor:
+    def forward(
+        self,
+        encoded: Tensor,
+        decoded: Tensor,
+        *,
+        enc_mask: OptionalTensor = None,
+        dec_mask: OptionalTensor = None,
+    ) -> Tensor:
         decoded = self.embedding(decoded)
         for block in self.blocks:
-            decoded = block(encoded=encoded, decoded=decoded, enc_mask=enc_mask, dec_mask=dec_mask)
+            decoded = block(
+                encoded=encoded, decoded=decoded, enc_mask=enc_mask, dec_mask=dec_mask
+            )
         return self.lm_head(decoded)
 
 
@@ -157,4 +179,3 @@ class GeneratorBlock:
     def forward(self, x: Tensor, mask: Tensor) -> Tensor:
         x = self.ln1(self.attn(x, mask) + x)
         return self.ln2(self.mlp(x) + x)
-    

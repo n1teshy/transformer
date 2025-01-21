@@ -1,6 +1,5 @@
 import torch
 from pathlib import Path
-from torch.nn.utils.rnn import pad_sequence
 from dataclasses import dataclass
 from typing import Callable
 from core.globals import DEVICE
@@ -21,9 +20,9 @@ class GeneratorDataConfig:
     def __post_init__(self):
         if self.stride is None:
             self.stride = self.target_context // 2
-    
 
-class GeneratorDataset():
+
+class GeneratorDataset:
     def __init__(self, config: GeneratorDataConfig):
         self.config = config
         self.source_tokens = []
@@ -32,15 +31,23 @@ class GeneratorDataset():
         self.tgt_pad = config.target_pad_id
         self._prepare_tokens(config)
 
-    def encode_sample(self, src: str, tgt: str, config: GeneratorDataConfig) -> tuple[list[list[int]]]:
+    def encode_sample(
+        self, src: str, tgt: str, config: GeneratorDataConfig
+    ) -> tuple[list[list[int]]]:
         src = src.replace(config.pseudo_newline, "\n") if config.pseudo_newline else src
         tgt = tgt.replace(config.pseudo_newline, "\n") if config.pseudo_newline else tgt
         src_tokens = config.encode_source(src)
-        assert len(src_tokens) <= config.source_context, f"\"{src}\" exceeds maximum context"
+        assert (
+            len(src_tokens) <= config.source_context
+        ), f'"{src}" exceeds maximum context'
         tgt_tokens = [config.sos_id] + config.encode_target(tgt) + [config.eos_id]
         if len(tgt_tokens) > config.target_context + 1:
-            it = range(config.target_context + 1, len(tgt_tokens) + config.stride, config.stride)
-            tgt_tokens = [tgt_tokens[i - (config.target_context + 1): i] for i in it]
+            it = range(
+                config.target_context + 1,
+                len(tgt_tokens) + config.stride,
+                config.stride,
+            )
+            tgt_tokens = [tgt_tokens[i - (config.target_context + 1) : i] for i in it]
         else:
             tgt_tokens = [tgt_tokens]
         return [src_tokens] * len(tgt_tokens), tgt_tokens

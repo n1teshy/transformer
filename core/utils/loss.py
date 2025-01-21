@@ -17,4 +17,7 @@ class LossMonitor:
                 self.loss_queue_sums[name] -= self.loss_queues[name].popleft()
             self.loss_queues[name].append(loss_values[name])
             self.loss_queue_sums[name] += loss_values[name]
-        return {name: self.loss_queue_sums[name] / len(self.loss_queues[name]) for name in self.loss_queue_sums}
+        return {
+            name: self.loss_queue_sums[name] / len(self.loss_queues[name])
+            for name in self.loss_queue_sums
+        }

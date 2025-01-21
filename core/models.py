@@ -26,23 +26,27 @@ class Transformer(nn.Module):
         self.sos_id = dec_config.sos_id
         self.eos_id = dec_config.eos_id
         self.device = dec_config.device
-    
+
     def forward(self, x: Tensor, y: Tensor) -> tuple[Tensor]:
         _y = y[:, :-1]
         enc_mask = self.get_enc_mask(x)
         dec_mask = self.get_dec_mask(_y)
         x = self.encoder(x, enc_mask)
-        logits = self.decoder(encoded=x, decoded=_y, enc_mask=enc_mask, dec_mask=dec_mask)
+        logits = self.decoder(
+            encoded=x, decoded=_y, enc_mask=enc_mask, dec_mask=dec_mask
+        )
         logits, y = logits.reshape(-1, logits.shape[-1]), y[:, 1:].reshape(-1)
         loss = F.cross_entropy(logits, y, reduction="none")
         mask = (y != self.dec_pad_id).float().view(-1)
         loss = loss * mask.view(-1)
         return logits, loss.sum() / mask.sum()
-    
+
     def get_enc_mask(self, x: Tensor) -> Tensor:
         # attn shape: (B, H, T, Te)
         # mask shape: (B, 1, 1, Te)
-        mask = torch.zeros_like(x, dtype=torch.float).masked_fill((x == self.enc_pad_id), -10000)
+        mask = torch.zeros_like(x, dtype=torch.float).masked_fill(
+            (x == self.enc_pad_id), -10000
+        )
         return mask.unsqueeze(1).unsqueeze(2).to(self.device)
 
     def get_dec_mask(self, y: Tensor) -> Tensor:
@@ -51,18 +55,25 @@ class Transformer(nn.Module):
         B, T = y.shape
         pad_mask = (y != self.dec_pad_id).unsqueeze(1).unsqueeze(3)
         causal_mask = torch.tril(torch.ones(T, T)).type(torch.ByteTensor).to(y.device)
-        causal_pad_mask = (pad_mask & causal_mask)
+        causal_pad_mask = pad_mask & causal_mask
         mask = torch.zeros_like(causal_pad_mask, dtype=torch.float)
         return mask.masked_fill_(causal_pad_mask.logical_not(), -10000)
-    
+
     @torch.no_grad()
-    def generate(self, x: Tensor, *, context: OptionalTensor = None, max_tokens: Optional[int] = None, topk: int | None = None):
+    def generate(
+        self,
+        x: Tensor,
+        *,
+        context: OptionalTensor = None,
+        max_tokens: Optional[int] = None,
+        topk: int | None = None,
+    ):
         assert x.shape[0] == 1
         x = self.encoder(x)
         context = context or torch.full((x.shape[0], 1), self.sos_id)
         yield self.sos_id
         while True:
-            context = context[:, -self.decoder_context:]
+            context = context[:, -self.decoder_context :]
             logits = self.decoder(x, context)
             probs = F.softmax(logits, dim=2)[:, -1, :]
             if topk is None:
@@ -90,7 +101,7 @@ class Generator:
         )
         self.proj = nn.Linear(config.model_dim, config.vocab_size)
         self.device = config.device
-    
+
     def forward(self, x: Tensor, y: Tensor | None = None) -> tuple[Tensor]:
         mask = self.get_mask(x)
         x = self.embeddings(x)
