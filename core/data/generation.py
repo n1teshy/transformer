@@ -34,20 +34,32 @@ class GeneratorDataset:
     def encode_sample(
         self, src: str, tgt: str, config: GeneratorDataConfig
     ) -> tuple[list[list[int]]]:
-        src = src.replace(config.pseudo_newline, "\n") if config.pseudo_newline else src
-        tgt = tgt.replace(config.pseudo_newline, "\n") if config.pseudo_newline else tgt
+        src = (
+            src.replace(config.pseudo_newline, "\n")
+            if config.pseudo_newline
+            else src
+        )
+        tgt = (
+            tgt.replace(config.pseudo_newline, "\n")
+            if config.pseudo_newline
+            else tgt
+        )
         src_tokens = config.encode_source(src)
         assert (
             len(src_tokens) <= config.source_context
         ), f'"{src}" exceeds maximum context'
-        tgt_tokens = [config.sos_id] + config.encode_target(tgt) + [config.eos_id]
+        tgt_tokens = (
+            [config.sos_id] + config.encode_target(tgt) + [config.eos_id]
+        )
         if len(tgt_tokens) > config.target_context + 1:
             it = range(
                 config.target_context + 1,
                 len(tgt_tokens) + config.stride,
                 config.stride,
             )
-            tgt_tokens = [tgt_tokens[i - (config.target_context + 1) : i] for i in it]
+            tgt_tokens = [
+                tgt_tokens[i - (config.target_context + 1) : i] for i in it
+            ]
         else:
             tgt_tokens = [tgt_tokens]
         return [src_tokens] * len(tgt_tokens), tgt_tokens

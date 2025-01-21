@@ -64,12 +64,16 @@ class MultiheadCrossAttention(nn.Module):
         self.proj = nn.Linear(config.model_dim, config.model_dim)
         self.no_heads = config.no_heads
 
-    def forward(self, encoded: Tensor, decoded: Tensor, mask: OptionalTensor) -> Tensor:
+    def forward(
+        self, encoded: Tensor, decoded: Tensor, mask: OptionalTensor
+    ) -> Tensor:
         B, T, C = encoded.shape
         kv = self.w_kv(encoded)
         q = self.w_q(decoded)
         k, v = kv.split(C, dim=2)
-        q = q.view(B, q.shape[1], self.no_heads, C // self.no_heads).transpose(1, 2)
+        q = q.view(B, q.shape[1], self.no_heads, C // self.no_heads).transpose(
+            1, 2
+        )
         k = k.view(B, T, self.no_heads, C // self.no_heads).transpose(1, 2)
         v = v.view(B, T, self.no_heads, C // self.no_heads).transpose(1, 2)
         y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
@@ -139,7 +143,8 @@ class DecoderBlock(nn.Module):
     ) -> Tensor:
         decoded = self.ln1(self.self_attn(decoded, dec_mask) + decoded)
         decoded = self.ln2(
-            self.cross_attn(encoded=encoded, decoded=decoded, mask=enc_mask) + decoded
+            self.cross_attn(encoded=encoded, decoded=decoded, mask=enc_mask)
+            + decoded
         )
         return self.ln3(self.mlp(decoded) + decoded)
 
@@ -164,7 +169,10 @@ class Decoder(nn.Module):
         decoded = self.embedding(decoded)
         for block in self.blocks:
             decoded = block(
-                encoded=encoded, decoded=decoded, enc_mask=enc_mask, dec_mask=dec_mask
+                encoded=encoded,
+                decoded=decoded,
+                enc_mask=enc_mask,
+                dec_mask=dec_mask,
             )
         return self.lm_head(decoded)
 

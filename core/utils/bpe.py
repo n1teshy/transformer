@@ -59,7 +59,9 @@ class Tokenizer:
             for split in splits:
                 frequencies = get_stats(split, frequencies)
             pair = max(frequencies, key=frequencies.get)
-            splits = [merge_tokens(split, pair, 256 + round) for split in splits]
+            splits = [
+                merge_tokens(split, pair, 256 + round) for split in splits
+            ]
             self.merges[pair] = 256 + round
             self.vocab[256 + round] = self.vocab[pair[0]] + self.vocab[pair[1]]
             if verbose:
@@ -69,7 +71,9 @@ class Tokenizer:
 
     def add_special_tokens(self, *specials) -> None:
         assert all([isinstance(token, str) for token in specials])
-        self.specials = {token: self.size + i for i, token in enumerate(specials)}
+        self.specials = {
+            token: self.size + i for i, token in enumerate(specials)
+        }
         self.inverse_specials = {v: k for k, v in self.specials.items()}
 
     def _encode_chunk(self, text_bytes: bytes) -> list[int]:
@@ -99,10 +103,14 @@ class Tokenizer:
             specials = {}
             assert all(tkn not in text for tkn in self.specials)
         elif isinstance(allowed_specials, set):
-            specials = {k: v for k, v in self.specials.item() if k in allowed_specials}
+            specials = {
+                k: v for k, v in self.specials.item() if k in allowed_specials
+            }
         if not specials:
             return self.encode_ordinary(text)
-        specials_pattern = "(" + "|".join(re.escape(tkn) for tkn in specials) + ")"
+        specials_pattern = (
+            "(" + "|".join(re.escape(tkn) for tkn in specials) + ")"
+        )
         chunks = re.split(specials_pattern, text)
         ids = []
         for chunk in chunks:
@@ -138,7 +146,10 @@ class Tokenizer:
                     f.write(f"{word} [{idx}]\n")
                 else:
                     p0, p1 = merged_tokens[idx]
-                    p0, p1 = render_token(self.vocab[p0]), render_token(self.vocab[p1])
+                    p0, p1 = (
+                        render_token(self.vocab[p0]),
+                        render_token(self.vocab[p1]),
+                    )
                     f.write(f"[{p0}] [{p1}] -> {word} [{idx}]\n")
 
     def load(self, file: str) -> None:

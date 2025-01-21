@@ -22,16 +22,24 @@ class SeqToSeqDataset:
         if config.cache_dir is not None:
             assert (config.cache_dir / "source").exists()
             assert (config.cache_dir / "target").exists()
-            self.source_shards = [f for f in (config.cache_dir / "source").iterdir()]
-            self.target_shards = [f for f in (config.cache_dir / "target").iterdir()]
+            self.source_shards = [
+                f for f in (config.cache_dir / "source").iterdir()
+            ]
+            self.target_shards = [
+                f for f in (config.cache_dir / "target").iterdir()
+            ]
         else:
             assert config.source.is_file() == config.target.is_file()
             if config.source.is_file():
                 self.source_shards = [config.source]
                 self.target_shards = [config.target]
             else:
-                self.source_shards = [f for f in config.source.iterdir() if f.is_file()]
-                self.target_shards = [f for f in config.target.iterdir() if f.is_file()]
+                self.source_shards = [
+                    f for f in config.source.iterdir() if f.is_file()
+                ]
+                self.target_shards = [
+                    f for f in config.target.iterdir() if f.is_file()
+                ]
             # make sure there is a 1:1 mapping between source and target files
             assert set(f.name for f in self.source_shards) == set(
                 f.name for f in self.target_shards
@@ -61,10 +69,13 @@ class SeqToSeqDataset:
             len(src_tokens) <= self.config.encoder_context
         ), f'"{src}" exceeds encoder context'
         tgt_tokens = (
-            [self.config.sos_id] + self.config.encode_target(tgt) + [self.config.eos_id]
+            [self.config.sos_id]
+            + self.config.encode_target(tgt)
+            + [self.config.eos_id]
         )
-        # the target sequences are stored as "<sos> + xxxx + <eos>", only "<sos> + xxxx" is fed to
-        # the decoder i.e "full_target_sequence - <eos_token>"
+        # the target sequences are stored as "<sos> + xxxx + <eos>"
+        # only "<sos> + xxxx" is fed to the decoder
+        # i.e "full_target_sequence - <eos_token>"
         if len(tgt_tokens) - 1 > self.config.decoder_context:
             it = range(
                 self.config.decoder_context + 1,
@@ -72,7 +83,8 @@ class SeqToSeqDataset:
                 self.config.stride,
             )
             tgt_tokens = [
-                tgt_tokens[i - (self.config.decoder_context + 1) : i] for i in it
+                tgt_tokens[i - (self.config.decoder_context + 1) : i]
+                for i in it
             ]
         else:
             tgt_tokens = [tgt_tokens]
@@ -95,7 +107,9 @@ class SeqToSeqDataset:
                     while source_line := source_f.readline():
                         source_line = source_line.rstrip("\n")
                         target_line = target_f.readline().rstrip("\n")
-                        src, tgt = self._encode_sample(source_line, target_line)
+                        src, tgt = self._encode_sample(
+                            source_line, target_line
+                        )
                         self.source_sequences.extend(src)
                         self.target_sequences.extend(tgt)
         if self.config.shuffle_samples:
@@ -110,12 +124,18 @@ class SeqToSeqDataset:
         for shard_idx in range(len(self.source_shards)):
             self.current_shard_idx = shard_idx
             self._load_current_shard()
-            source_file = source_dir / f"{self.source_shards[shard_idx].name}.pkl"
-            target_file = target_dir / f"{self.target_shards[shard_idx].name}.pkl"
+            source_file = (
+                source_dir / f"{self.source_shards[shard_idx].name}.pkl"
+            )
+            target_file = (
+                target_dir / f"{self.target_shards[shard_idx].name}.pkl"
+            )
             pickle.dump(self.source_sequences, open(source_file, "wb"))
             pickle.dump(self.target_sequences, open(target_file, "wb"))
             if verbose:
-                print(f"saved {shard_idx + 1}/{len(self.source_shards)} shards")
+                print(
+                    f"saved {shard_idx + 1}/{len(self.source_shards)} shards"
+                )
 
     def next_batch(self) -> tuple[Tensor] | None:
         batch_till = self.sequences_processed + self.config.batch_size
@@ -130,7 +150,13 @@ class SeqToSeqDataset:
             Xs += self.source_sequences[:batch_till]
             Ys += self.target_sequences[:batch_till]
         Xs, Ys = [torch.tensor(x) for x in Xs], [torch.tensor(y) for y in Ys]
-        Xs = pad_sequence(Xs, batch_first=True, padding_value=self.config.source_pad_id)
-        Ys = pad_sequence(Ys, batch_first=True, padding_value=self.config.target_pad_id)
+        Xs = pad_sequence(
+            Xs, batch_first=True, padding_value=self.config.source_pad_id
+        )
+        Ys = pad_sequence(
+            Ys, batch_first=True, padding_value=self.config.target_pad_id
+        )
         self.sequences_processed = batch_till
-        return Xs.to(device=self.config.device), Ys.to(device=self.config.device)
+        return Xs.to(device=self.config.device), Ys.to(
+            device=self.config.device
+        )

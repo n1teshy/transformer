@@ -1,0 +1,6 @@
+** transformer **
+1. add support for dropout
+
+
+** generator **
+1. read code and find shit

@@ -54,7 +54,9 @@ class Transformer(nn.Module):
         # mask shape: (B, 1, Td, Td)
         B, T = y.shape
         pad_mask = (y != self.dec_pad_id).unsqueeze(1).unsqueeze(3)
-        causal_mask = torch.tril(torch.ones(T, T)).type(torch.ByteTensor).to(y.device)
+        causal_mask = (
+            torch.tril(torch.ones(T, T)).type(torch.ByteTensor).to(y.device)
+        )
         causal_pad_mask = pad_mask & causal_mask
         mask = torch.zeros_like(causal_pad_mask, dtype=torch.float)
         return mask.masked_fill_(causal_pad_mask.logical_not(), -10000)
@@ -108,7 +110,9 @@ class Generator:
         logits = self.proj(self.blocks(x, mask))
         loss = None
         if y is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.shape[-1]), y.view(-1))
+            loss = F.cross_entropy(
+                logits.view(-1, logits.shape[-1]), y.view(-1)
+            )
         return logits, loss
 
     def get_mask(self, x: Tensor) -> Tensor:
