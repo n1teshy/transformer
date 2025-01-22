@@ -2,13 +2,14 @@
 # TODO: use model compilation?
 # TODO: use TF16?
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from torch import Tensor
-from core.utils.types import OptionalTensor
-from core.utils.configs import ModelConfig, EncoderConfig, DecoderConfig
+
+from core.utils.configs import DecoderConfig, EncoderConfig, ModelConfig
 
 
 class Embedding(nn.Module):
@@ -19,10 +20,10 @@ class Embedding(nn.Module):
         positions = torch.arange(0, config.context).unsqueeze(1)
         _2i = torch.arange(0, config.model_dim, 2)
         self.pos_encoding[:, 0::2] = torch.sin(
-            positions / 10000 ** (_2i / config.model_dim)
+            positions / 10_000 ** (_2i / config.model_dim)
         )
         self.pos_encoding[:, 1::2] = torch.cos(
-            positions / 10000 ** (_2i / config.model_dim)
+            positions / 10_000 ** (_2i / config.model_dim)
         )
         self.pos_encoding = self.pos_encoding.to(config.device)
 
@@ -65,7 +66,7 @@ class MultiheadCrossAttention(nn.Module):
         self.no_heads = config.no_heads
 
     def forward(
-        self, encoded: Tensor, decoded: Tensor, mask: OptionalTensor
+        self, encoded: Tensor, decoded: Tensor, mask: Optional[Tensor]
     ) -> Tensor:
         B, T, C = encoded.shape
         kv = self.w_kv(encoded)
@@ -103,7 +104,7 @@ class EncoderBlock(nn.Module):
         self.ln2 = nn.LayerNorm(config.model_dim)
         self.mlp = MLP(config)
 
-    def forward(self, x: Tensor, mask: OptionalTensor) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor]) -> Tensor:
         x = x + self.attn(self.ln1(x), mask)
         return x + self.mlp(self.ln2(x))
 
@@ -116,7 +117,7 @@ class Encoder(nn.Module):
             [EncoderBlock(config) for _ in range(config.no_blocks)]
         )
 
-    def forward(self, x: Tensor, mask: OptionalTensor = None) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         x = self.embedding(x)
         for block in self.blocks:
             x = block(x, mask)
@@ -138,8 +139,8 @@ class DecoderBlock(nn.Module):
         encoded: Tensor,
         decoded: Tensor,
         *,
-        enc_mask: OptionalTensor,
-        dec_mask: OptionalTensor,
+        enc_mask: Optional[Tensor],
+        dec_mask: Optional[Tensor],
     ) -> Tensor:
         decoded = self.ln1(self.self_attn(decoded, dec_mask) + decoded)
         decoded = self.ln2(
@@ -163,8 +164,8 @@ class Decoder(nn.Module):
         encoded: Tensor,
         decoded: Tensor,
         *,
-        enc_mask: OptionalTensor = None,
-        dec_mask: OptionalTensor = None,
+        enc_mask: Optional[Tensor] = None,
+        dec_mask: Optional[Tensor] = None,
     ) -> Tensor:
         decoded = self.embedding(decoded)
         for block in self.blocks:

@@ -1,10 +1,12 @@
 import os
-import torch
 import pickle
 import random
 from pathlib import Path
+
+import torch
 from torch import Tensor
 from torch.nn.utils.rnn import pad_sequence
+
 from core.utils.configs import SeqToSeqDataConfig
 
 
@@ -16,6 +18,7 @@ class SeqToSeqDataset:
         self.target_sequences = []
         self.current_shard_idx = 0
         self.sequences_processed = 0
+        self._load_current_shard()
 
     def _prepare_shards(self):
         config = self.config
@@ -40,10 +43,10 @@ class SeqToSeqDataset:
                 self.target_shards = [
                     f for f in config.target.iterdir() if f.is_file()
                 ]
-            # make sure there is a 1:1 mapping between source and target files
-            assert set(f.name for f in self.source_shards) == set(
-                f.name for f in self.target_shards
-            )
+                # make sure there is a 1:1 mapping between source and target files
+                assert set(f.name for f in self.source_shards) == set(
+                    f.name for f in self.target_shards
+                )
             for idx in range(len(self.source_shards)):
                 with open(self.source_shards[idx], encoding="utf-8") as f:
                     source_line_count = sum(1 for _ in f)
@@ -105,8 +108,7 @@ class SeqToSeqDataset:
             with open(source, encoding="utf-8") as source_f:
                 with open(target, encoding="utf-8") as target_f:
                     while source_line := source_f.readline():
-                        source_line = source_line.rstrip("\n")
-                        target_line = target_f.readline().rstrip("\n")
+                        target_line = target_f.readline()
                         src, tgt = self._encode_sample(
                             source_line, target_line
                         )
@@ -117,7 +119,7 @@ class SeqToSeqDataset:
             random.shuffle(pairs)
             self.source_sequences, self.target_sequences = zip(*pairs)
 
-    def save(self, path: os.PathLike, verbose: bool = False):
+    def cache(self, path: os.PathLike, verbose: bool = False):
         path = Path(path)
         source_dir, target_dir = path / "source", path / "target"
         source_dir.mkdir(exist_ok=True), target_dir.mkdir(exist_ok=True)
@@ -130,8 +132,9 @@ class SeqToSeqDataset:
             target_file = (
                 target_dir / f"{self.target_shards[shard_idx].name}.pkl"
             )
-            pickle.dump(self.source_sequences, open(source_file, "wb"))
-            pickle.dump(self.target_sequences, open(target_file, "wb"))
+            with open(source_file, "wb") as sf, open(target_file, "wb") as tf:
+                pickle.dump(self.source_sequences, sf)
+                pickle.dump(self.target_sequences, tf)
             if verbose:
                 print(
                     f"saved {shard_idx + 1}/{len(self.source_shards)} shards"
@@ -143,7 +146,7 @@ class SeqToSeqDataset:
         Ys = self.target_sequences[self.sequences_processed : batch_till]
         if batch_till > len(self.source_sequences):
             self.current_shard_idx += 1
-            if self.current_shard_idx == len(self.source_shards):
+            if self.current_shard_idx >= len(self.source_shards):
                 return
             self._load_current_shard()
             batch_till = self.config.batch_size - len(Xs)
@@ -156,7 +159,5 @@ class SeqToSeqDataset:
         Ys = pad_sequence(
             Ys, batch_first=True, padding_value=self.config.target_pad_id
         )
-        self.sequences_processed = batch_till
-        return Xs.to(device=self.config.device), Ys.to(
-            device=self.config.device
-        )
+        self.sequences_processed += self.config.batch_size
+        return Xs, Ys

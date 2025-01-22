@@ -1,81 +1,99 @@
-import torch
+import os
+import pickle
+import random
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Callable
-from core.globals import DEVICE
+from typing import Optional
 
+import torch
+from torch.nn.utils.rnn import pad_sequence
 
-@dataclass
-class GeneratorDataConfig:
-    source: Path
-    context: int
-    encode: Callable
-    sos_id: int
-    eos_id: int
-    pseudo_newline: str | None = None
-    stride: int | None = None
-    device: torch.device = DEVICE
-    cache_dir: Path | None = None
-
-    def __post_init__(self):
-        if self.stride is None:
-            self.stride = self.target_context // 2
+from core.utils.configs import GeneratorDataConfig
 
 
 class GeneratorDataset:
     def __init__(self, config: GeneratorDataConfig):
         self.config = config
-        self.source_tokens = []
-        self.target_tokens = []
-        self.src_pad = config.source_pad_id
-        self.tgt_pad = config.target_pad_id
-        self._prepare_tokens(config)
+        self.shards = []
+        self.token_sequences = []
+        self.current_shard_idx = 0
+        self.sequences_processed = 0
+        self._prepare_shards(config)
 
-    def encode_sample(
-        self, src: str, tgt: str, config: GeneratorDataConfig
-    ) -> tuple[list[list[int]]]:
-        src = (
-            src.replace(config.pseudo_newline, "\n")
-            if config.pseudo_newline
-            else src
+    def _encode_sample(self, text: str) -> list[list[int]]:
+        if self.config.pseudo_newline is not None:
+            text = text.replace(self.config.pseudo_newline, "\n")
+        tokens = (
+            [self.config.sos_id]
+            + self.config.encode(text)
+            + [self.config.eos_id]
         )
-        tgt = (
-            tgt.replace(config.pseudo_newline, "\n")
-            if config.pseudo_newline
-            else tgt
-        )
-        src_tokens = config.encode_source(src)
-        assert (
-            len(src_tokens) <= config.source_context
-        ), f'"{src}" exceeds maximum context'
-        tgt_tokens = (
-            [config.sos_id] + config.encode_target(tgt) + [config.eos_id]
-        )
-        if len(tgt_tokens) > config.target_context + 1:
+        if len(tokens) - 1 > self.config.context:
             it = range(
-                config.target_context + 1,
-                len(tgt_tokens) + config.stride,
-                config.stride,
+                self.config.context + 1,
+                len(tokens) + self.config.stride,
+                self.config.stride,
             )
-            tgt_tokens = [
-                tgt_tokens[i - (config.target_context + 1) : i] for i in it
+            return [tokens[i - (self.config.context + 1) : i] for i in it]
+        return [tokens]
+
+    def _prepare_shards(self):
+        if self.config.cache_dir is not None:
+            self.shards = [
+                file
+                for file in self.config.cache_dir.iterdir()
+                if file.suffix == ".pkl"
+            ]
+        if self.config.source.is_dir():
+            self.shards = [
+                file
+                for file in self.config.source.iterdir()
+                if file.suffix == ".txt"
             ]
         else:
-            tgt_tokens = [tgt_tokens]
-        return [src_tokens] * len(tgt_tokens), tgt_tokens
+            self.shards = [self.config.source]
+        if self.config.shuffle_shards:
+            random.shuffle(self.shards)
 
-    def _prepare_tokens(self, config: GeneratorDataConfig):
-        source = open(config.source, encoding="utf-8")
-        target = open(config.target, encoding="utf-8")
-        line_count = sum(1 for _ in source)
-        assert sum(1 for _ in target) == line_count
-        source.seek(0)
-        target.seek(0)
-        for _ in range(line_count):
-            src = source.readline().rstrip("\n")
-            tgt = target.readline().rstrip("\n")
-            src, tgt = self.encode_sample(src, tgt, config)
-            self.source_tokens.extend(src)
-            self.target_tokens.extend(tgt)
-        source.close()
-        target.close()
+    def _load_current_shard(self):
+        if self.config.cache_dir is not None:
+            with open(self.shards[self.current_shard_idx], "rb") as f:
+                self.token_sequences = pickle.load(f)
+        else:
+            shard_file = self.shards[self.current_shard_idx]
+            with open(shard_file, encoding="utf-8") as f:
+                for sample in f:
+                    self.token_sequences.extend(self._encode_sample(sample))
+        if self.config.shuffle_samples:
+            random.shuffle(self.token_sequences)
+
+    def cache(self, path: os.PathLike, verbose: bool = False):
+        path = Path(path)
+        assert path.exists()
+        for shard_idx in range(len(self.shards)):
+            self.current_shard_idx = shard_idx
+            self._load_current_shard()
+            cache_file = path / f"{self.shards[shard_idx].name}.pkl"
+            with open(cache_file, "wb") as f:
+                pickle.dump(self.source_sequences, f)
+            if verbose:
+                print(
+                    f"saved {shard_idx + 1}/{len(self.source_shards)} shards"
+                )
+
+    def next_batch(self) -> Optional[tuple[torch.Tensor]]:
+        batch_till = self.sequences_processed + self.config.batch_size
+        Xs = self.token_sequences[self.sequences_processed : batch_till]
+        if batch_till > len(self.token_sequences):
+            self.current_shard_idx += 1
+            if self.current_shard_idx >= len(self.shards):
+                return
+            self._load_current_shard()
+            batch_till = self.config.batch_size - len(Xs)
+            Xs += self.token_sequences[:batch_till]
+        Xs, Ys = [torch.tensor(x) for x in Xs], [torch.tensor(y) for y in Ys]
+        Xs = pad_sequence(
+            Xs, batch_first=True, padding_value=self.config.pad_id
+        )
+        Xs, Ys = Xs[:, :-1], Xs[:, 1:]
+        self.sequences_processed += self.config.batch_size
+        return Xs, Ys

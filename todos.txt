@@ -6,6 +6,9 @@
 1. read code and find shit
 
 
+** common **
+1. mask has -10,000 as bias, should replace with -inf instead?
+
+
 ** data **
-1. add common DataConfig class
-2. create GeneratorDataConfig and TransformerDataConfig
+1. remove pseudo_newline, check every file and demand the same file as target in the target directory
