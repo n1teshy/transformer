@@ -17,11 +17,26 @@ class GeneratorDataset:
         self.token_sequences = []
         self.current_shard_idx = 0
         self.sequences_processed = 0
-        self._prepare_shards(config)
+        self._prepare_shards()
+        self._load_current_shard()
+
+    def _prepare_shards(self):
+        if self.config.cache_dir is not None:
+            self.shards = list(self.config.cache_dir.glob("*.pkl"))
+        else:
+            if self.config.source.is_file():
+                self.shards = [self.config.source]
+            else:
+                self.shards = list(self.config.source.rglob("*.txt"))
+        if self.config.shuffle_shards:
+            random.shuffle(self.shards)
+
+    def reset(self):
+        self.current_shard_idx = 0
+        self.sequences_processed = 0
+        self._load_current_shard()
 
     def _encode_sample(self, text: str) -> list[list[int]]:
-        if self.config.pseudo_newline is not None:
-            text = text.replace(self.config.pseudo_newline, "\n")
         tokens = (
             [self.config.sos_id]
             + self.config.encode(text)
@@ -36,64 +51,53 @@ class GeneratorDataset:
             return [tokens[i - (self.config.context + 1) : i] for i in it]
         return [tokens]
 
-    def _prepare_shards(self):
-        if self.config.cache_dir is not None:
-            self.shards = [
-                file
-                for file in self.config.cache_dir.iterdir()
-                if file.suffix == ".pkl"
-            ]
-        if self.config.source.is_dir():
-            self.shards = [
-                file
-                for file in self.config.source.iterdir()
-                if file.suffix == ".txt"
-            ]
-        else:
-            self.shards = [self.config.source]
-        if self.config.shuffle_shards:
-            random.shuffle(self.shards)
+    def _read_shard(self, idx: int) -> list[str]:
+        with open(self.shards[idx], encoding="utf-8") as f:
+            if self.config.sample_delimiter is None:
+                return f.read().splitlines()
+            return f.read().split(self.config.sample_delimiter)
 
     def _load_current_shard(self):
         if self.config.cache_dir is not None:
             with open(self.shards[self.current_shard_idx], "rb") as f:
                 self.token_sequences = pickle.load(f)
         else:
-            shard_file = self.shards[self.current_shard_idx]
-            with open(shard_file, encoding="utf-8") as f:
-                for sample in f:
-                    self.token_sequences.extend(self._encode_sample(sample))
+            self.token_sequences = []
+            for sample in self._read_shard(self.current_shard_idx):
+                self.token_sequences.extend(self._encode_sample(sample))
         if self.config.shuffle_samples:
             random.shuffle(self.token_sequences)
 
     def cache(self, path: os.PathLike, verbose: bool = False):
         path = Path(path)
-        assert path.exists()
+        assert path.exists(), "%s doesn't exist" % (path,)
         for shard_idx in range(len(self.shards)):
             self.current_shard_idx = shard_idx
             self._load_current_shard()
-            cache_file = path / f"{self.shards[shard_idx].name}.pkl"
+            cache_file = path / f"{shard_idx}.pkl"
             with open(cache_file, "wb") as f:
-                pickle.dump(self.source_sequences, f)
+                pickle.dump(self.token_sequences, f)
             if verbose:
-                print(
-                    f"saved {shard_idx + 1}/{len(self.source_shards)} shards"
-                )
+                print(f"saved {shard_idx + 1}/{len(self.shards)} shards")
 
     def next_batch(self) -> Optional[tuple[torch.Tensor]]:
         batch_till = self.sequences_processed + self.config.batch_size
-        Xs = self.token_sequences[self.sequences_processed : batch_till]
+        tokens = self.token_sequences[self.sequences_processed : batch_till]
         if batch_till > len(self.token_sequences):
             self.current_shard_idx += 1
-            if self.current_shard_idx >= len(self.shards):
+            if self.current_shard_idx < len(self.shards):
+                self._load_current_shard()
+                batch_till = self.config.batch_size - len(tokens)
+                tokens += self.token_sequences[:batch_till]
+            elif len(tokens) == 0:
                 return
-            self._load_current_shard()
-            batch_till = self.config.batch_size - len(Xs)
-            Xs += self.token_sequences[:batch_till]
-        Xs, Ys = [torch.tensor(x) for x in Xs], [torch.tensor(y) for y in Ys]
+        Xs = [torch.tensor(row[:-1]) for row in tokens]
+        Ys = [torch.tensor(row[1:]) for row in tokens]
         Xs = pad_sequence(
             Xs, batch_first=True, padding_value=self.config.pad_id
         )
-        Xs, Ys = Xs[:, :-1], Xs[:, 1:]
-        self.sequences_processed += self.config.batch_size
+        Ys = pad_sequence(
+            Ys, batch_first=True, padding_value=self.config.pad_id
+        )
+        self.sequences_processed += Xs.shape[0]
         return Xs, Ys

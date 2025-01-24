@@ -4,7 +4,6 @@
 
 from typing import Optional
 
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
@@ -16,21 +15,22 @@ class Embedding(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.tkn_embedding = nn.Embedding(config.vocab_size, config.model_dim)
-        self.pos_encoding = torch.randn((config.context, config.model_dim))
-        positions = torch.arange(0, config.context).unsqueeze(1)
-        _2i = torch.arange(0, config.model_dim, 2)
-        self.pos_encoding[:, 0::2] = torch.sin(
-            positions / 10_000 ** (_2i / config.model_dim)
-        )
-        self.pos_encoding[:, 1::2] = torch.cos(
-            positions / 10_000 ** (_2i / config.model_dim)
-        )
-        self.pos_encoding = self.pos_encoding.to(config.device)
+        self.pos_embedding = nn.Embedding(config.context, config.model_dim)
+        # self.pos_embedding = torch.randn((config.context, config.model_dim))
+        # positions = torch.arange(0, config.context).unsqueeze(1)
+        # _2i = torch.arange(0, config.model_dim, 2)
+        # self.pos_embedding[:, 0::2] = torch.sin(
+        #     positions / 10_000 ** (_2i / config.model_dim)
+        # )
+        # self.pos_embedding[:, 1::2] = torch.cos(
+        #     positions / 10_000 ** (_2i / config.model_dim)
+        # )
+        # self.pos_embedding = self.pos_embedding.to(config.device)
+        self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x: Tensor) -> Tensor:
-        B, T = x.shape
-        _ = self.tkn_embedding(x)
-        return _ + self.pos_encoding[:T, :]
+        emb = self.tkn_embedding(x) + self.pos_embedding(x)
+        return self.dropout(emb)
 
 
 class MultiheadSelfAttention(nn.Module):
@@ -38,8 +38,8 @@ class MultiheadSelfAttention(nn.Module):
         super().__init__()
         self.w_attn = nn.Linear(config.model_dim, 3 * config.model_dim)
         self.proj = nn.Linear(config.model_dim, config.model_dim)
-        self.model_dim = config.model_dim
-        self.no_heads = config.no_heads
+        self.proj_dropout = nn.Dropout(config.dropout)
+        self.config = config
 
     def forward(self, x: Tensor, mask: Tensor) -> Tensor:
         B, T, C = x.shape
@@ -48,13 +48,25 @@ class MultiheadSelfAttention(nn.Module):
         # q, k, v: (B, T, C) each
         q, k, v = qkv.split(C, dim=2)
         # q: (B, T, nh, hs) -> (B, nh, T, hs)
-        q = q.view(B, T, self.no_heads, C // self.no_heads).transpose(1, 2)
-        k = k.view(B, T, self.no_heads, C // self.no_heads).transpose(1, 2)
-        v = v.view(B, T, self.no_heads, C // self.no_heads).transpose(1, 2)
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+        q = q.view(
+            B, T, self.config.no_heads, C // self.config.no_heads
+        ).transpose(1, 2)
+        k = k.view(
+            B, T, self.config.no_heads, C // self.config.no_heads
+        ).transpose(1, 2)
+        v = v.view(
+            B, T, self.config.no_heads, C // self.config.no_heads
+        ).transpose(1, 2)
+        y = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=mask,
+            dropout_p=self.config.dropout if self.config.train_mode else 0,
+        )
         # (B, nh, T, hs) -> (B, T, nh, hs) -> (B, T, C)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
-        return self.proj(y)
+        return self.proj_dropout(self.proj(y))
 
 
 class MultiheadCrossAttention(nn.Module):
@@ -63,7 +75,8 @@ class MultiheadCrossAttention(nn.Module):
         self.w_kv = nn.Linear(config.model_dim, 2 * config.model_dim)
         self.w_q = nn.Linear(config.model_dim, config.model_dim)
         self.proj = nn.Linear(config.model_dim, config.model_dim)
-        self.no_heads = config.no_heads
+        self.proj_dropout = nn.Dropout(config.dropout)
+        self.config = config
 
     def forward(
         self, encoded: Tensor, decoded: Tensor, mask: Optional[Tensor]
@@ -75,12 +88,22 @@ class MultiheadCrossAttention(nn.Module):
         q = q.view(B, q.shape[1], self.no_heads, C // self.no_heads).transpose(
             1, 2
         )
-        k = k.view(B, T, self.no_heads, C // self.no_heads).transpose(1, 2)
-        v = v.view(B, T, self.no_heads, C // self.no_heads).transpose(1, 2)
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+        k = k.view(
+            B, T, self.config.no_heads, C // self.config.no_heads
+        ).transpose(1, 2)
+        v = v.view(
+            B, T, self.config.no_heads, C // self.config.no_heads
+        ).transpose(1, 2)
+        y = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=mask,
+            dropout_p=self.config.dropout if self.config.train_mode else 0,
+        )
         B, H, T, C = y.shape
         y = y.transpose(1, 2).contiguous().view(B, T, H * C)
-        return self.proj(y)
+        return self.proj_dropout(self.proj(y))
 
 
 class MLP(nn.Module):
@@ -90,6 +113,7 @@ class MLP(nn.Module):
             nn.Linear(config.model_dim, config.model_dim * 4),
             nn.GELU("tanh"),
             nn.Linear(config.model_dim * 4, config.model_dim),
+            nn.Dropout(config.dropout),
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -178,8 +202,9 @@ class Decoder(nn.Module):
         return self.lm_head(decoded)
 
 
-class GeneratorBlock:
+class GeneratorBlock(nn.Module):
     def __init__(self, config: ModelConfig):
+        super().__init__()
         self.attn = MultiheadSelfAttention(config)
         self.ln1 = nn.LayerNorm(config.model_dim)
         self.mlp = MLP(config)

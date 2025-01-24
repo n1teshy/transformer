@@ -78,7 +78,7 @@ class Transformer(nn.Module):
         context = context or torch.full((x.shape[0], 1), self.dec_conf.sos_id)
         yield self.dec_conf.sos_id
         while True:
-            context = context[:, -self.dec_conf.context:]
+            context = context[:, -self.dec_conf.context :]
             logits = self.decoder(x, context)
             probs = F.softmax(logits, dim=2)[:, -1, :]
             if topk is None:
@@ -100,17 +100,18 @@ class Transformer(nn.Module):
 
 class Generator(nn.Module):
     def __init__(self, config: ModelConfig):
+        super().__init__()
         self.embeddings = Embedding(config)
-        self.blocks = nn.Sequential(
-            *[GeneratorBlock(config) for _ in range(config.no_blocks)]
-        )
+        self.blocks = [GeneratorBlock(config) for _ in range(config.no_blocks)]
         self.proj = nn.Linear(config.model_dim, config.vocab_size)
 
     def forward(self, x: Tensor, y: Tensor | None = None) -> tuple[Tensor]:
         device = next(self.parameters()).device
         mask = self.get_mask(x).to(device)
         x = self.embeddings(x)
-        logits = self.proj(self.blocks(x, mask))
+        for block in self.blocks:
+            x = block(x, mask)
+        logits = self.proj(x)
         loss = None
         if y is not None:
             loss = F.cross_entropy(

@@ -2,6 +2,8 @@ import unicodedata
 
 import regex as re
 
+import core.constants as c
+
 GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
 
 
@@ -47,6 +49,18 @@ class Tokenizer:
     @property
     def size(self):
         return len(self.vocab) + len(self.specials)
+
+    @property
+    def sos_id(self):
+        return self.specials.get(c.TOKEN_SOS)
+
+    @property
+    def eos_id(self):
+        return self.specials.get(c.TOKEN_EOS)
+
+    @property
+    def pad_id(self):
+        return self.specials.get(c.TOKEN_PAD)
 
     def train(self, file: str, max_tokens=256, verbose=False) -> None:
         with open(file, encoding="utf-8") as f:

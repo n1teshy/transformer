@@ -8,7 +8,9 @@
 
 ** common **
 1. mask has -10,000 as bias, should replace with -inf instead?
+2. add an error message for every assertion
 
 
 ** data **
-1. remove pseudo_newline, check every file and demand the same file as target in the target directory
+1. have the sample delimiter working in both dataset classes - done
+2. test the transformer-dataset - done

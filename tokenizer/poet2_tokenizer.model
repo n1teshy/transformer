@@ -1,7 +1,5 @@
-minbpe v1
-'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+
 3
-<bos> 1024
+<sos> 1024
 <eos> 1025
 <pad> 1026
 32 116
