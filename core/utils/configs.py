@@ -82,6 +82,9 @@ class TransformerDataConfig:
             )
             self.source = Path(self.source)
             self.target = Path(self.target)
+            assert (
+                self.source.exists() and self.target.exists()
+            ), "non-existent source or target path"
             if self.stride is None:
                 self.stride = self.decoder_context // 2
         else:

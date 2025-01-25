@@ -146,23 +146,25 @@ class TransformerDataset:
 
     def next_batch(self) -> tuple[Tensor] | None:
         batch_till = self.sequences_processed + self.config.batch_size
-        Xs = self.source_sequences[self.sequences_processed : batch_till]
-        Ys = self.target_sequences[self.sequences_processed : batch_till]
-        if batch_till > len(self.source_sequences):
+        xB = self.source_sequences[self.sequences_processed : batch_till]
+        yB = self.target_sequences[self.sequences_processed : batch_till]
+        while len(xB) < self.config.batch_size:
             self.current_shard_idx += 1
             if self.current_shard_idx < len(self.source_shards):
                 self._load_current_shard()
-                batch_till = self.config.batch_size - len(Xs)
-                Xs += self.source_sequences[:batch_till]
-                Ys += self.target_sequences[:batch_till]
-            elif len(Xs) == 0:
+                batch_till = self.config.batch_size - len(xB)
+                xB += self.source_sequences[:batch_till]
+                yB += self.target_sequences[:batch_till]
+            elif len(xB) == 0:
                 return
-        Xs, Ys = [torch.tensor(x) for x in Xs], [torch.tensor(y) for y in Ys]
-        Xs = pad_sequence(
-            Xs, batch_first=True, padding_value=self.config.source_pad_id
+            else:
+                break
+        xB, yB = [torch.tensor(x) for x in xB], [torch.tensor(y) for y in yB]
+        xB = pad_sequence(
+            xB, batch_first=True, padding_value=self.config.source_pad_id
         )
-        Ys = pad_sequence(
-            Ys, batch_first=True, padding_value=self.config.target_pad_id
+        yB = pad_sequence(
+            yB, batch_first=True, padding_value=self.config.target_pad_id
         )
-        self.sequences_processed += Xs.shape[0]
-        return Xs, Ys
+        self.sequences_processed = batch_till
+        return xB, yB

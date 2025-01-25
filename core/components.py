@@ -1,9 +1,6 @@
-# TODO: look into flash attention
-# TODO: use model compilation?
-# TODO: use TF16?
-
 from typing import Optional
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
@@ -29,8 +26,10 @@ class Embedding(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x: Tensor) -> Tensor:
-        emb = self.tkn_embedding(x) + self.pos_embedding(x)
-        return self.dropout(emb)
+        pos = torch.arange(0, x.shape[1], dtype=torch.long, device=x.device)
+        tkn_emb = self.tkn_embedding(x)
+        pos_emb = self.pos_embedding(pos)
+        return self.dropout(tkn_emb + pos_emb)
 
 
 class MultiheadSelfAttention(nn.Module):
@@ -41,28 +40,24 @@ class MultiheadSelfAttention(nn.Module):
         self.proj_dropout = nn.Dropout(config.dropout)
         self.config = config
 
-    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        dropout = self.config.dropout if self.config.train_mode else 0
+        no_heads = self.config.no_heads
         B, T, C = x.shape
         # qkv: (B, T, 3 * C)
         qkv = self.w_attn(x)
         # q, k, v: (B, T, C) each
         q, k, v = qkv.split(C, dim=2)
         # q: (B, T, nh, hs) -> (B, nh, T, hs)
-        q = q.view(
-            B, T, self.config.no_heads, C // self.config.no_heads
-        ).transpose(1, 2)
-        k = k.view(
-            B, T, self.config.no_heads, C // self.config.no_heads
-        ).transpose(1, 2)
-        v = v.view(
-            B, T, self.config.no_heads, C // self.config.no_heads
-        ).transpose(1, 2)
+        q = q.view(B, T, no_heads, C // no_heads).transpose(1, 2)
+        k = k.view(B, T, no_heads, C // no_heads).transpose(1, 2)
+        v = v.view(B, T, no_heads, C // no_heads).transpose(1, 2)
         y = F.scaled_dot_product_attention(
             q,
             k,
             v,
             attn_mask=mask,
-            dropout_p=self.config.dropout if self.config.train_mode else 0,
+            dropout_p=dropout,
         )
         # (B, nh, T, hs) -> (B, T, nh, hs) -> (B, T, C)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
@@ -79,27 +74,23 @@ class MultiheadCrossAttention(nn.Module):
         self.config = config
 
     def forward(
-        self, encoded: Tensor, decoded: Tensor, mask: Optional[Tensor]
+        self, encoded: Tensor, decoded: Tensor, mask: Optional[Tensor] = None
     ) -> Tensor:
+        dropout = self.config.dropout if self.config.train_mode else 0
+        no_heads = self.config.no_heads
         B, T, C = encoded.shape
         kv = self.w_kv(encoded)
         q = self.w_q(decoded)
         k, v = kv.split(C, dim=2)
-        q = q.view(B, q.shape[1], self.no_heads, C // self.no_heads).transpose(
-            1, 2
-        )
-        k = k.view(
-            B, T, self.config.no_heads, C // self.config.no_heads
-        ).transpose(1, 2)
-        v = v.view(
-            B, T, self.config.no_heads, C // self.config.no_heads
-        ).transpose(1, 2)
+        q = q.view(B, q.shape[1], no_heads, C // no_heads).transpose(1, 2)
+        k = k.view(B, T, no_heads, C // no_heads).transpose(1, 2)
+        v = v.view(B, T, no_heads, C // no_heads).transpose(1, 2)
         y = F.scaled_dot_product_attention(
             q,
             k,
             v,
             attn_mask=mask,
-            dropout_p=self.config.dropout if self.config.train_mode else 0,
+            dropout_p=dropout,
         )
         B, H, T, C = y.shape
         y = y.transpose(1, 2).contiguous().view(B, T, H * C)
@@ -128,7 +119,7 @@ class EncoderBlock(nn.Module):
         self.ln2 = nn.LayerNorm(config.model_dim)
         self.mlp = MLP(config)
 
-    def forward(self, x: Tensor, mask: Optional[Tensor]) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         x = x + self.attn(self.ln1(x), mask)
         return x + self.mlp(self.ln2(x))
 
@@ -163,8 +154,8 @@ class DecoderBlock(nn.Module):
         encoded: Tensor,
         decoded: Tensor,
         *,
-        enc_mask: Optional[Tensor],
-        dec_mask: Optional[Tensor],
+        enc_mask: Optional[Tensor] = None,
+        dec_mask: Optional[Tensor] = None,
     ) -> Tensor:
         decoded = self.ln1(self.self_attn(decoded, dec_mask) + decoded)
         decoded = self.ln2(
@@ -210,6 +201,6 @@ class GeneratorBlock(nn.Module):
         self.mlp = MLP(config)
         self.ln2 = nn.LayerNorm(config.model_dim)
 
-    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         x = self.ln1(self.attn(x, mask) + x)
         return self.ln2(self.mlp(x) + x)

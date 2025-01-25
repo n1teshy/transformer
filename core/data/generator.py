@@ -82,22 +82,24 @@ class GeneratorDataset:
 
     def next_batch(self) -> Optional[tuple[torch.Tensor]]:
         batch_till = self.sequences_processed + self.config.batch_size
-        tokens = self.token_sequences[self.sequences_processed : batch_till]
-        if batch_till > len(self.token_sequences):
+        batch = self.token_sequences[self.sequences_processed : batch_till]
+        while len(batch) < self.config.batch_size:
             self.current_shard_idx += 1
             if self.current_shard_idx < len(self.shards):
                 self._load_current_shard()
-                batch_till = self.config.batch_size - len(tokens)
-                tokens += self.token_sequences[:batch_till]
-            elif len(tokens) == 0:
+                batch_till = self.config.batch_size - len(batch)
+                batch += self.token_sequences[:batch_till]
+            elif len(batch) == 0:
                 return
-        Xs = [torch.tensor(row[:-1]) for row in tokens]
-        Ys = [torch.tensor(row[1:]) for row in tokens]
+            else:
+                break
+        Xs = [torch.tensor(row[:-1]) for row in batch]
+        Ys = [torch.tensor(row[1:]) for row in batch]
         Xs = pad_sequence(
             Xs, batch_first=True, padding_value=self.config.pad_id
         )
         Ys = pad_sequence(
             Ys, batch_first=True, padding_value=self.config.pad_id
         )
-        self.sequences_processed += Xs.shape[0]
+        self.sequences_processed = batch_till
         return Xs, Ys

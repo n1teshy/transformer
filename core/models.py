@@ -12,7 +12,6 @@ from core.components import (
     Encoder,
     EncoderConfig,
     GeneratorBlock,
-    ModelConfig,
 )
 
 
@@ -27,16 +26,19 @@ class Transformer(nn.Module):
     def forward(self, x: Tensor, y: Tensor) -> tuple[Tensor]:
         device = next(self.parameters()).device
         x, y = x.to(device), y.to(device)
-        _y = y[:, :-1]
+        dec_inp = y[:, :-1]
         enc_mask = self.get_enc_mask(x).to(device)
-        dec_mask = self.get_dec_mask(_y).to(device)
+        dec_mask = self.get_dec_mask(dec_inp).to(device)
         x = self.encoder(x, enc_mask)
         logits = self.decoder(
-            encoded=x, decoded=_y, enc_mask=enc_mask, dec_mask=dec_mask
+            encoded=x, decoded=dec_inp, enc_mask=enc_mask, dec_mask=dec_mask
         )
-        logits, y = logits.reshape(-1, logits.shape[-1]), y[:, 1:].reshape(-1)
-        loss = F.cross_entropy(logits, y, reduction="none")
-        mask = (y != self.dec_conf.pad_id).float().view(-1)
+        logits, tgt = (
+            logits.reshape(-1, logits.shape[-1]),
+            y[:, 1:].reshape(-1),
+        )
+        loss = F.cross_entropy(logits, tgt, reduction="none")
+        mask = (tgt != self.dec_conf.pad_id).float().view(-1)
         loss = loss * mask.view(-1)
         return logits, loss.sum() / mask.sum()
 
@@ -74,8 +76,12 @@ class Transformer(nn.Module):
         topk: int | None = None,
     ):
         assert x.shape[0] == 1
+        device = next(self.parameters()).device
+        x = x.to(device)
         x = self.encoder(x)
-        context = context or torch.full((x.shape[0], 1), self.dec_conf.sos_id)
+        context = context or torch.full(
+            (x.shape[0], 1), self.dec_conf.sos_id
+        ).to(device)
         yield self.dec_conf.sos_id
         while True:
             context = context[:, -self.dec_conf.context :]
@@ -85,11 +91,11 @@ class Transformer(nn.Module):
                 next_idx = torch.multinomial(probs, 1)
             else:
                 k_probs, k_indices = torch.topk(probs, k=topk)
-                next_idx = torch.multinomial(k_probs, 1)
-                next_idx = torch.gather(k_indices, -1, next_idx)
+                sel_idx = torch.multinomial(k_probs, 1)
+                next_idx = torch.gather(k_indices, -1, sel_idx)
             token_id = next_idx.item()
             yield token_id
-            if token_id == self.dec_conf.eos_id:
+            if token_id == self.dec_conf.eos_id and max_tokens is None:
                 return
             elif max_tokens is not None:
                 max_tokens -= 1
@@ -99,24 +105,22 @@ class Transformer(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: DecoderConfig):
         super().__init__()
         self.embeddings = Embedding(config)
         self.blocks = [GeneratorBlock(config) for _ in range(config.no_blocks)]
-        self.proj = nn.Linear(config.model_dim, config.vocab_size)
+        self.lm_head = nn.Linear(config.model_dim, config.vocab_size)
+        self.config = config
 
-    def forward(self, x: Tensor, y: Tensor | None = None) -> tuple[Tensor]:
+    def forward(self, x: Tensor, y: Tensor) -> tuple[Tensor]:
         device = next(self.parameters()).device
+        x, y = x.to(device), y.to(device)
         mask = self.get_mask(x).to(device)
         x = self.embeddings(x)
         for block in self.blocks:
             x = block(x, mask)
-        logits = self.proj(x)
-        loss = None
-        if y is not None:
-            loss = F.cross_entropy(
-                logits.view(-1, logits.shape[-1]), y.view(-1)
-            )
+        logits = self.lm_head(x)
+        loss = F.cross_entropy(logits.view(-1, logits.shape[-1]), y.view(-1))
         return logits, loss
 
     def get_mask(self, x: Tensor) -> Tensor:
@@ -125,3 +129,39 @@ class Generator(nn.Module):
         B, T = x.shape
         mask = torch.tril(torch.ones(T, T))
         return torch.zeros_like(mask).masked_fill_(mask.logical_not(), -10_000)
+
+    @torch.no_grad()
+    def generate(
+        self,
+        context: Optional[Tensor] = None,
+        max_tokens: Optional[int] = None,
+        topk: int | None = None,
+    ):
+        context = context
+        if context is None:
+            device = next(self.parameters()).device
+            context = torch.tensor([[self.config.sos_id]], device=device)
+        assert context.shape[0] == 1
+        yield self.config.sos_id
+        while True:
+            context = context[:, -self.config.context :]
+            inp = self.embeddings(context.clone())
+            for block in self.blocks:
+                inp = block(inp)
+            logits = self.lm_head(inp)
+            probs = F.softmax(logits, dim=2)[:, -1, :]
+            if topk is None:
+                next_idx = torch.multinomial(probs, 1)
+            else:
+                k_probs, k_indices = torch.topk(probs, k=topk)
+                sel_idx = torch.multinomial(k_probs, 1)
+                next_idx = torch.gather(k_indices, -1, sel_idx)
+            token_id = next_idx.item()
+            yield token_id
+            if token_id == self.config.eos_id and max_tokens is None:
+                return
+            elif max_tokens is not None:
+                max_tokens -= 1
+                if max_tokens == 0:
+                    return
+            context = torch.cat((context, next_idx), dim=1)
