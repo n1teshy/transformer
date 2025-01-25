@@ -46,7 +46,7 @@ class Transformer(nn.Module):
         # attn shape: (B, H, T, T)
         # mask shape: (B, 1, 1, T)
         mask = torch.zeros_like(x, dtype=torch.float).masked_fill(
-            (x == self.enc_conf.pad_id), -10_000
+            (x == self.enc_conf.pad_id), float("-inf")
         )
         return mask.unsqueeze(1).unsqueeze(2)
 
@@ -64,7 +64,7 @@ class Transformer(nn.Module):
         causal_pad_mask = pad_mask & causal_mask
         mask = torch.zeros_like(causal_pad_mask, dtype=torch.float)
         # TODO: should fill -inf instead of 10,000?
-        return mask.masked_fill_(causal_pad_mask.logical_not(), -10_000)
+        return mask.masked_fill_(causal_pad_mask.logical_not(), float("-inf"))
 
     @torch.no_grad()
     def generate(
@@ -134,7 +134,7 @@ class Generator(nn.Module):
         # mask shape: (Td, Td)
         B, T = x.shape
         mask = torch.tril(torch.ones(T, T))
-        return torch.zeros_like(mask).masked_fill_(mask.logical_not(), -10_000)
+        return torch.zeros_like(mask).masked_fill_(mask.logical_not(), float("-inf"))
 
     @torch.no_grad()
     def generate(
