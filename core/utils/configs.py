@@ -40,6 +40,7 @@ class GeneratorDataConfig:
                 self.stride = self.context // 2
         else:
             self.cache_dir = Path(self.cache_dir)
+            assert self.cache_dir.exists(), "%s doesn't exist" % (self.cache_dir,)
 
 
 @dataclass
