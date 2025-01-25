@@ -108,7 +108,7 @@ class Generator(nn.Module):
     def __init__(self, config: DecoderConfig):
         super().__init__()
         self.embeddings = Embedding(config)
-        self.blocks = [GeneratorBlock(config) for _ in range(config.no_blocks)]
+        self.blocks = nn.ModuleList([GeneratorBlock(config) for _ in range(config.no_blocks)])
         self.lm_head = nn.Linear(config.model_dim, config.vocab_size)
         self.config = config
 
