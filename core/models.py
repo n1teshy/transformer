@@ -39,8 +39,8 @@ class Transformer(nn.Module):
         )
         loss = F.cross_entropy(logits, tgt, reduction="none")
         mask = (tgt != self.dec_conf.pad_id).float().view(-1)
-        loss = loss * mask.view(-1)
-        return logits, loss.sum() / mask.sum()
+        loss = (loss * mask).sum() / mask.sum()
+        return logits, loss
 
     def get_enc_mask(self, x: Tensor) -> Tensor:
         # attn shape: (B, H, T, T)
@@ -120,7 +120,13 @@ class Generator(nn.Module):
         for block in self.blocks:
             x = block(x, mask)
         logits = self.lm_head(x)
-        loss = F.cross_entropy(logits.view(-1, logits.shape[-1]), y.view(-1))
+        loss = F.cross_entropy(
+            logits.view(-1, logits.shape[-1]),
+            y.view(-1),
+            reduction="none"
+        )
+        mask = (y != self.config.pad_id).float().view(-1)
+        loss = (loss * mask).sum() / mask.sum()
         return logits, loss
 
     def get_mask(self, x: Tensor) -> Tensor:
