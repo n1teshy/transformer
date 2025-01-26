@@ -41,6 +41,7 @@ class GeneratorDataConfig:
         else:
             self.cache_dir = Path(self.cache_dir)
             assert self.cache_dir.exists(), "%s doesn't exist" % (self.cache_dir,)
+            assert len(list(self.cache_dir.rglob("*.pkl"))) > 0, "cache directory is empty"
 
 
 @dataclass
@@ -93,6 +94,7 @@ class TransformerDataConfig:
             assert (self.cache_dir / "source").exists() and (
                 self.cache_dir / "target"
             ).exists(), "invalid cache directory"
+            assert len(list(self.cache_dir.rglob("*.pkl"))) > 0, "cache directory is empty"
 
 
 @dataclass
