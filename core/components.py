@@ -249,5 +249,5 @@ class GeneratorBlock(nn.Module):
         self.ln2 = nn.LayerNorm(config.model_dim)
 
     def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
-        x = self.ln1(self.attn(x, mask) + x)
-        return self.ln2(self.mlp(x) + x)
+        x = x + self.attn(self.ln1(x), mask)
+        return x + self.mlp(self.ln2(x))
