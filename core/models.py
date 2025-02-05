@@ -112,7 +112,7 @@ class Generator(nn.Module):
         self.lm_head = nn.Linear(config.model_dim, config.vocab_size)
         self.config = config
 
-    def forward(self, x: Tensor, y: Tensor) -> tuple[Tensor]:
+    def forward(self, x: Tensor, y: Tensor) -> tuple[Tensor, Tensor]:
         device = next(self.parameters()).device
         x, y = x.to(device), y.to(device)
         mask = self.get_mask(x).to(device)
